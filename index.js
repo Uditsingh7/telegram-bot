@@ -1,82 +1,105 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
+const mongoString = 'mongodb+srv://how3:zJA6GKeimXAJJBG8@editorapi.aiarnwk.mongodb.net/bot-telegram?retryWrites=true&w=majority'
+const mongoose = require('mongoose');
+const User = require('./models/User');
+const Task = require('./models/Task');
+const Referral = require('./models/Referral');
+const Transaction = require('./models/Transaction');
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
-// Mock storage for user data in this demo
-const userData = {};
-
-
-// mock tasks here
-const tasks = [
-    { id: "task_1", name: "Join Channel vectoroad", description: "Join this channel to earn points.", channelId: "@vectoroad", points: 10 },
-    { id: "task_2", name: "Join Channel testVectoroad", description: "Join this second channel for more points.", channelId: "@testVectoroad", points: 15 }
-    // Add more tasks here if needed
-];
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+}).then(() => {
+    console.log('Connected to MongoDB');
+}).catch((error) => {
+    console.error('MongoDB connection error:', error);
+});
 
 // Start command to greet user and prompt to join the channel
-bot.onText(/\/start(?: (.*))?/, (msg, match) => {
+bot.onText(/\/start(?: (.*))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const referralParam = match[1]; // Capture the referral parameter if present
 
-    // Check if the start parameter is a referral link
-    if (referralParam && referralParam.startsWith("referral_")) {
-        const referrerId = referralParam.split("_")[1];
+    try {
+        // Check if user already exists in the database
+        let user = await User.findOne({ userId: chatId });
 
-        // Only process if the referrer is not the same as the new user
-        if (referrerId && referrerId !== chatId.toString()) {
-            if (!userData[referrerId]) {
-                userData[referrerId] = { balance: 100, referrals: 0, completedTasks: [] }; // Initialize referrer data if not already present
+        // If the user doesn't exist, create a new one
+        if (!user) {
+            user = new User({ userId: chatId, balance: 100, referrals: 0, completedTasks: [] });
+            await user.save();
+        }
+
+        // Process referral if a referral parameter exists
+        if (referralParam && referralParam.startsWith("referral_")) {
+            const referrerId = referralParam.split("_")[1];
+
+            // Ensure the referral is valid and not self-referred
+            if (referrerId && referrerId !== chatId.toString()) {
+                // Check if this referral has already been processed
+                const existingReferral = await Referral.findOne({ referredUserId: chatId });
+                if (!existingReferral) {
+                    // Save referral record
+                    const referral = new Referral({ referrerId, referredUserId: chatId });
+                    await referral.save();
+
+                    // Update referrer data
+                    const referrer = await User.findOne({ userId: referrerId });
+                    if (referrer) {
+                        referrer.referrals += 1;
+                        const referralPoints = 5; // Points awarded for each referral
+                        referrer.balance += referralPoints;
+                        await referrer.save();
+
+                        // Notify the referrer about the successful referral
+                        bot.sendMessage(referrerId, `🎉 You've earned ${referralPoints} points for referring a new user! Your new balance is ${referrer.balance} points.`);
+                    }
+                }
             }
-
-            // Increment the referrer's referral count and award points
-            userData[referrerId].referrals += 1;
-            const referralPoints = 5; // Example points for each referral
-            userData[referrerId].balance += referralPoints;
-
-            // Notify the referrer about the successful referral
-            bot.sendMessage(referrerId, `🎉 You've earned ${referralPoints} points for referring a new user! Your new balance is ${userData[referrerId].balance} points.`);
         }
+
+        // Show welcome message and prompt to join the official channel
+        const welcomeMessage = `
+        👋 Welcome to EarnHub Bot!
+
+        To get started, please join our official channel:
+        👉 https://t.me/+UGrtv9SSttlhZmU1
+
+        Once you've joined, click "Verify" below to continue.
+        `;
+
+        const options = {
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: "Verify", callback_data: "verify" }] // Verify button
+                ]
+            }
+        };
+
+        bot.sendMessage(chatId, welcomeMessage, options);
+
+    } catch (error) {
+        console.error("Error in /start command:", error);
+        bot.sendMessage(chatId, "⚠️ There was an error setting up your account. Please try again later.");
     }
-
-    // Save or initialize user data for the new user
-    if (!userData[chatId]) {
-        userData[chatId] = { balance: 100, referrals: 0, completedTasks: [] };
-    }
-
-    // Show welcome message and prompt to join the official channel
-    const welcomeMessage = `
-    👋 Welcome to EarnHub Bot!
-
-    To get started, please join our official channel:
-    👉 https://t.me/+UGrtv9SSttlhZmU1
-
-    Once you've joined, click "Verify" below to continue.
-    `;
-
-    const options = {
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: "Verify", callback_data: "verify" }] // Verify button
-            ]
-        }
-    };
-
-    bot.sendMessage(chatId, welcomeMessage, options);
 });
+
 
 
 // Handle the "Verify" button and navigate to the main menu if verified
 bot.on("callback_query", async (query) => {
     const chatId = query.message.chat.id;
+    console.log(query.data)
 
     if (query.data === "verify") {
         try {
-            // Use getChatMember to check if user is a member of the official channel
+            // Verify user membership in the main channel
             const chatMember = await bot.getChatMember("@vectoroad", chatId);
-
-            // Check if the user is a member of the channel
-            if (chatMember.status === "member" || chatMember.status === "administrator" || chatMember.status === "creator") {
+            if (["member", "administrator", "creator"].includes(chatMember.status)) {
                 bot.sendMessage(chatId, "✅ Verification successful! Welcome to EarnHub Bot.");
                 showMainMenu(chatId);
             } else {
@@ -89,19 +112,25 @@ bot.on("callback_query", async (query) => {
         return;
     }
 
-    // Check if the query data matches a dynamic task ID
-    const task = tasks.find(task => `verify_${task.id}` === query.data);
+    // Task Verification by Task ID
+    if (query.data.startsWith("verify_")) {
+        const taskId = query.data.split("_")[1];
+        const task = await Task.findById(taskId);
 
-    if (task) {
-        await verifyTaskCompletion(chatId, task.channelId, task.points);
-        return; // Stop further processing after task verification
-    } else if (query.data === "main_menu") {
-        showMainMenu(chatId);
+        if (task) {
+            // Pass task._id to verifyTaskCompletion, which is the correct ObjectId
+            await verifyTaskCompletion(chatId, task._id, task.points);
+        } else {
+            bot.sendMessage(chatId, "⚠️ Task not found.");
+        }
         return;
     }
 
-    // Switch for other menu options
+    // Main Menu and withdrawal setup commands
     switch (query.data) {
+        case "main_menu":
+            showMainMenu(chatId);
+            break;
         case "home":
             showHome(chatId);
             break;
@@ -112,18 +141,17 @@ bot.on("callback_query", async (query) => {
             showRefer(chatId);
             break;
 
-        // Start the guided Withdrawal setup
+        // Start Withdrawal Setup with database
         case "withdrawal":
             startWithdrawalSetup(chatId);
             break;
 
-        // Step-by-Step Withdrawal Options
+        // Show Withdrawal Details, now fetched from MongoDB
         case "view_withdrawal_details":
-            // Fetch user details or show "Not Set" if missing
-            const userDetails = userData[chatId] || {};
-            const exchangeId = userDetails.exchangeId || "Not Set";
-            const cryptoAddress = userDetails.cryptoAddress || "Not Set";
-            const bankDetails = userDetails.bankDetails || "Not Set";
+            const user = await User.findOne({ userId: chatId }) || {};
+            const exchangeId = user.withdrawalDetails?.exchangeId || "Not Set";
+            const cryptoAddress = user.withdrawalDetails?.cryptoAddress || "Not Set";
+            const bankDetails = user.withdrawalDetails?.bankDetails || "Not Set";
 
             const detailsMessage = `
             📄 *Your Withdrawal Details*
@@ -147,8 +175,8 @@ bot.on("callback_query", async (query) => {
 
         case "set_exchange_id":
             bot.sendMessage(chatId, "Please enter your *Exchange ID*:", { parse_mode: "Markdown" });
-            bot.once("message", (msg) => {
-                userData[chatId].exchangeId = msg.text;
+            bot.once("message", async (msg) => {
+                await User.updateOne({ userId: chatId }, { "withdrawalDetails.exchangeId": msg.text }, { upsert: true });
                 bot.sendMessage(chatId, "Exchange ID saved! Select another option or return to the main menu.");
                 startWithdrawalSetup(chatId);
             });
@@ -156,8 +184,8 @@ bot.on("callback_query", async (query) => {
 
         case "set_crypto_address":
             bot.sendMessage(chatId, "Please enter your *Crypto Address*:", { parse_mode: "Markdown" });
-            bot.once("message", (msg) => {
-                userData[chatId].cryptoAddress = msg.text;
+            bot.once("message", async (msg) => {
+                await User.updateOne({ userId: chatId }, { "withdrawalDetails.cryptoAddress": msg.text }, { upsert: true });
                 bot.sendMessage(chatId, "Crypto Address saved! Select another option or return to the main menu.");
                 startWithdrawalSetup(chatId);
             });
@@ -165,12 +193,14 @@ bot.on("callback_query", async (query) => {
 
         case "set_bank_details":
             bot.sendMessage(chatId, "Please enter your *Bank Details*:", { parse_mode: "Markdown" });
-            bot.once("message", (msg) => {
-                userData[chatId].bankDetails = msg.text;
+            bot.once("message", async (msg) => {
+                await User.updateOne({ userId: chatId }, { "withdrawalDetails.bankDetails": msg.text }, { upsert: true });
                 bot.sendMessage(chatId, "Bank Details saved! Select another option or return to the main menu.");
                 startWithdrawalSetup(chatId);
             });
             break;
+
+        // Earn Section (Deposit/Withdrawal Handlers for Opportunities)
         case "deposit_opportunity_a":
             handleDeposit(chatId, "Opportunity A");
             break;
@@ -201,11 +231,12 @@ bot.on("callback_query", async (query) => {
             showEarn(chatId);
             break;
 
-        default:
-            bot.sendMessage(chatId, "Please select a valid option.");
-            break;
+        // default:
+        //     bot.sendMessage(chatId, "Please select a valid option.");
+        //     break;
     }
 });
+
 
 // Display Earn Section with Opportunities
 function showEarn(chatId) {
@@ -321,61 +352,71 @@ function startWithdrawalSetup(chatId) {
     bot.sendMessage(chatId, initialMessage, options);
 }
 
-// Handle each step of the input
-bot.on("callback_query", (query) => {
-    const chatId = query.message.chat.id;
-
-    switch (query.data) {
-        case "main_menu":
-            showMainMenu(chatId);
-            break;
-    }
-});
-
-
-
 // Display referral link and referral count
-function showRefer(chatId) {
-    const referralLink = `https://t.me/${process.env.BOT_USERNAME}?start=referral_${chatId}`;
-    const referrals = userData[chatId]?.referrals || 0;
+async function showRefer(chatId) {
+    try {
+        // Retrieve user data from MongoDB
+        const user = await User.findOne({ userId: chatId });
 
-    const referMessage = `
-    🔗 *Refer and Earn*
-    
-    Share your unique referral link to earn points for every new user who joins:
-    \`${referralLink}\`  👈 Copy this link and share it!
+        // If user exists, get their referral count; otherwise, set it to 0
+        const referrals = user ? user.referrals : 0;
 
-    Total Referrals: ${referrals}
-    `;
+        // Generate the referral link
+        const referralLink = `https://t.me/${process.env.BOT_USERNAME}?start=referral_${chatId}`;
 
-    const options = {
-        parse_mode: "Markdown",
-        disable_web_page_preview: true,
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: "Back to Main Menu", callback_data: "main_menu" }]
-            ]
-        }
-    };
+        // Construct the referral message
+        const referMessage = `
+        🔗 *Refer and Earn*
+        
+        Share your unique referral link to earn points for every new user who joins:
+        \`${referralLink}\`  👈 Copy this link and share it!
 
-    bot.sendMessage(chatId, referMessage, options);
+        Total Referrals: ${referrals}
+        `;
+
+        const options = {
+            parse_mode: "Markdown",
+            disable_web_page_preview: true,
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: "Back to Main Menu", callback_data: "main_menu" }]
+                ]
+            }
+        };
+
+        bot.sendMessage(chatId, referMessage, options);
+
+    } catch (error) {
+        console.error("Error fetching referral data:", error);
+        bot.sendMessage(chatId, "⚠️ Unable to fetch your referral data. Please try again later.");
+    }
 }
 
 
 
+
 // Helper function to verify task completion and reward points
-async function verifyTaskCompletion(chatId, channelId, points) {
+async function verifyTaskCompletion(chatId, taskId, points) {
     try {
-        const chatMember = await bot.getChatMember(channelId, chatId);
+        const task = await Task.findById(taskId); // Ensure task ID is fetched as an ObjectId
+
+        if (!task) {
+            bot.sendMessage(chatId, "⚠️ Task not found.");
+            return;
+        }
+
+        const chatMember = await bot.getChatMember(task.channelId, chatId);
 
         if (["member", "administrator", "creator"].includes(chatMember.status)) {
-            // Initialize completedTasks array if it doesn't exist
-            if (!userData[chatId].completedTasks) {
-                userData[chatId].completedTasks = [];
+            // Retrieve user data from MongoDB
+            let user = await User.findOne({ userId: chatId });
+
+            if (!user) {
+                user = new User({ userId: chatId, balance: 0, referrals: 0, completedTasks: [] });
             }
 
             // Check if the task was already completed
-            if (userData[chatId].completedTasks.includes(channelId)) {
+            if (user.completedTasks.includes(taskId)) {
                 bot.sendMessage(chatId, "✅ You have already completed this task.", {
                     reply_markup: {
                         inline_keyboard: [
@@ -385,10 +426,12 @@ async function verifyTaskCompletion(chatId, channelId, points) {
                     }
                 });
             } else {
-                // Mark task as completed and award points
-                userData[chatId].completedTasks.push(channelId);
-                userData[chatId].balance += points;
-                bot.sendMessage(chatId, `🎉 Task completed! You've earned ${points} points. Your new balance is ${userData[chatId].balance} points.`, {
+                // Mark task as completed with ObjectId and award points
+                user.completedTasks.push(task._id); // Ensure task._id is stored as ObjectId
+                user.balance += points;
+                await user.save();
+
+                bot.sendMessage(chatId, `🎉 Task completed! You've earned ${points} points. Your new balance is ${user.balance} points.`, {
                     reply_markup: {
                         inline_keyboard: [
                             [{ text: "Back to Task List", callback_data: "tasks" }],
@@ -421,6 +464,8 @@ async function verifyTaskCompletion(chatId, channelId, points) {
 }
 
 
+
+
 // Function to show the main menu
 function showMainMenu(chatId) {
     const menuMessage = `
@@ -444,72 +489,75 @@ function showMainMenu(chatId) {
 }
 
 // Individual section functions with Back to Main Menu button
-function showHome(chatId) {
-    const balance = userData[chatId].balance;
-    const homeMessage = `
-    🏠 *Home Page*
-    
-    💰 *Your Current Balance:* ${balance} points
-    
-    📢 *Promote Your Ad!* Click below to view our ad channel for more info.
-    `;
+async function showHome(chatId) {
+    try {
+        // Retrieve user data from MongoDB
+        const user = await User.findOne({ userId: chatId });
+        const balance = user ? user.balance : 0; // Default to 0 if user not found
 
-    const options = {
-        parse_mode: "Markdown",  // This enables bold and formatting
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: "Visit Ad Channel", url: "https://t.me/vectoroad" }], // Replace with your ad channel link
-                [{ text: "Back to Main Menu", callback_data: "main_menu" }]
-            ]
-        }
-    };
+        // Home page message with user's balance
+        const homeMessage = `
+        🏠 *Home Page*
+        
+        💰 *Your Current Balance:* ${balance} points
+        
+        📢 *Promote Your Ad!* Click below to view our ad channel for more info.
+        `;
 
-    bot.sendMessage(chatId, homeMessage, options);
-}
+        const options = {
+            parse_mode: "Markdown",
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: "Visit Ad Channel", url: "https://t.me/vectoroad" }], // Replace with your ad channel link
+                    [{ text: "Back to Main Menu", callback_data: "main_menu" }]
+                ]
+            }
+        };
 
-function showTasks(chatId) {
-    // Build the tasks message dynamically
-    let tasksMessage = `📋 *Tasks*\n\nComplete the following tasks to earn points:\n\n`;
+        bot.sendMessage(chatId, homeMessage, options);
 
-    const taskButtons = tasks.map(task => [
-        { text: `Verify ${task.name}`, callback_data: `verify_${task.id}` }
-    ]);
-
-    tasks.forEach(task => {
-        tasksMessage += `🔹 *${task.name}* - Earn ${task.points} points\n👉 *Description*: ${task.description}\n\n`;
-    });
-
-    tasksMessage += "After joining, click the corresponding 'Verify' button below to claim your points.";
-
-    const options = {
-        parse_mode: "Markdown",
-        disable_web_page_preview: true,
-        reply_markup: {
-            inline_keyboard: [
-                ...taskButtons,
-                [{ text: "Back to Main Menu", callback_data: "main_menu" }]
-            ]
-        }
-    };
-
-    bot.sendMessage(chatId, tasksMessage, options);
+    } catch (error) {
+        console.error("Error fetching user balance:", error);
+        bot.sendMessage(chatId, "⚠️ Unable to fetch your balance. Please try again later.");
+    }
 }
 
 
-function showWithdrawal(chatId) {
-    const withdrawalMessage = `
-    💸 Withdrawal
-    Set up weekly withdrawals by entering your wallet address.
-    Example: Type "Set Wallet <your_wallet_address>"
-    `;
+// Import Task model
+async function showTasks(chatId) {
+    try {
+        // Fetch tasks from MongoDB
+        const tasks = await Task.find({});
 
-    const options = {
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: "Back to Main Menu", callback_data: "main_menu" }]
-            ]
-        }
-    };
+        // Build the tasks message dynamically
+        let tasksMessage = `📋 *Tasks*\n\nComplete the following tasks to earn points:\n\n`;
 
-    bot.sendMessage(chatId, withdrawalMessage, options);
+        // Generate task buttons and messages dynamically from the database
+        const taskButtons = tasks.map(task => [
+            { text: `Verify ${task.name}`, callback_data: `verify_${task._id}` }
+        ]);
+
+        tasks.forEach(task => {
+            tasksMessage += `🔹 *${task.name}* - Earn ${task.points} points\n👉 *Description*: ${task.description}\n\n`;
+        });
+
+        tasksMessage += "After joining, click the corresponding 'Verify' button below to claim your points.";
+
+        const options = {
+            parse_mode: "Markdown",
+            disable_web_page_preview: true,
+            reply_markup: {
+                inline_keyboard: [
+                    ...taskButtons,
+                    [{ text: "Back to Main Menu", callback_data: "main_menu" }]
+                ]
+            }
+        };
+
+        bot.sendMessage(chatId, tasksMessage, options);
+
+    } catch (error) {
+        console.error("Error fetching tasks:", error);
+        bot.sendMessage(chatId, "⚠️ Unable to fetch tasks. Please try again later.");
+    }
 }
