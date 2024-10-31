@@ -6,6 +6,7 @@ const User = require('./models/User');
 const Task = require('./models/Task');
 const Referral = require('./models/Referral');
 const Transaction = require('./models/Transaction');
+const Settings = require('./models/Settings');
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
@@ -28,9 +29,17 @@ bot.onText(/\/start(?: (.*))?/, async (msg, match) => {
         // Check if user already exists in the database
         let user = await User.findOne({ userId: chatId });
 
-        // If the user doesn't exist, create a new one
+        // If the user doesn't exist, create a new one with a default role of 'user'
         if (!user) {
-            user = new User({ userId: chatId, balance: 100, referrals: 0, completedTasks: [] });
+            user = new User({
+                userId: chatId,
+                username: msg.from.username || 'N/A',
+                firstName: msg.from.first_name || 'N/A',
+                balance: 100,
+                referrals: 0,
+                completedTasks: [],
+                role: 'user'
+            });
             await user.save();
         }
 
@@ -62,31 +71,65 @@ bot.onText(/\/start(?: (.*))?/, async (msg, match) => {
             }
         }
 
-        // Show welcome message and prompt to join the official channel
-        const welcomeMessage = `
-        👋 Welcome to EarnHub Bot!
+        // Check the user's role and display the appropriate dashboard
+        if (user.role === 'admin') {
+            // Show admin dashboard
+            bot.sendMessage(chatId, "👋 Welcome, Admin! Access your dashboard below.", {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "User Stats", callback_data: "admin_user_stats" }],
+                        [{ text: "Manage Home Page", callback_data: "admin_manage_home" }],
+                        [{ text: "Manage Tasks", callback_data: "admin_manage_tasks" }],
+                        [{ text: "Referral Management", callback_data: "admin_referrals" }],
+                        [{ text: "Manage Withdrawals", callback_data: "admin_withdrawals" }],
+                        [{ text: "Earn Opportunities", callback_data: "admin_earn" }]
+                    ]
+                }
+            });
+        } else {
+            // Fetch the official channel link from Settings
+            const channelSetting = await Settings.findOne({ key: 'officialChannelLink' });
+            const channelLink = channelSetting ? channelSetting.value.channelLink : 'https://t.me';
+            // Show standard user welcome message and prompt to join the official channel
 
-        To get started, please join our official channel:
-        👉 https://t.me/+UGrtv9SSttlhZmU1
+            const channelLogo = await Settings.findOne({ key: 'channelLogoImage' })
+            const welcomeMessage = `
+            👋 Welcome to EarnHub Bot!
 
-        Once you've joined, click "Verify" below to continue.
-        `;
+            To get started, please join our official channel:
+            👉 ${channelLink}
 
-        const options = {
-            reply_markup: {
-                inline_keyboard: [
-                    [{ text: "Verify", callback_data: "verify" }] // Verify button
-                ]
-            }
-        };
+            Once you've joined, click "Verify" below to continue.
+            `;
 
-        bot.sendMessage(chatId, welcomeMessage, options);
+            const options = {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "Verify", callback_data: "verify" }] // Verify button
+                    ]
+                }
+            };
+            // Send image first
+            bot.sendPhoto(chatId, channelLogo.value, {
+                caption: welcomeMessage,
+                parse_mode: "Markdown",
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "Verify", callback_data: "verify" }],
+                    ]
+                }
+            });
+
+
+            // bot.sendMessage(chatId, welcomeMessage, options);
+        }
 
     } catch (error) {
         console.error("Error in /start command:", error);
         bot.sendMessage(chatId, "⚠️ There was an error setting up your account. Please try again later.");
     }
 });
+
 
 
 
@@ -97,8 +140,10 @@ bot.on("callback_query", async (query) => {
 
     if (query.data === "verify") {
         try {
+            const channelSetting = await Settings.findOne({ key: 'officialChannelLink' });
+            const channelUsername = channelSetting ? channelSetting.value.channelUsername : '@v';
             // Verify user membership in the main channel
-            const chatMember = await bot.getChatMember("@vectoroad", chatId);
+            const chatMember = await bot.getChatMember(`${channelUsername}`, chatId);
             if (["member", "administrator", "creator"].includes(chatMember.status)) {
                 bot.sendMessage(chatId, "✅ Verification successful! Welcome to EarnHub Bot.");
                 showMainMenu(chatId);
@@ -231,11 +276,355 @@ bot.on("callback_query", async (query) => {
             showEarn(chatId);
             break;
 
-        // default:
-        //     bot.sendMessage(chatId, "Please select a valid option.");
-        //     break;
+        // Admin shorcts
+        case "admin_user_stats":
+            await showUserStats(chatId);
+            break;
+
+        case "admin_withdrawals":
+            bot.sendMessage(chatId, "Enter the new withdrawal currency symbol:", { parse_mode: "Markdown" });
+            bot.once("message", async (msg) => {
+                const currency = msg.text.trim();
+                await Settings.updateOne({ key: "withdrawal_currency" }, { value: currency }, { upsert: true });
+                bot.sendMessage(chatId, `✅ Withdrawal currency updated to ${currency}`);
+            });
+            break;
+
+        case "admin_earn":
+            bot.sendMessage(chatId, "Manage cryptocurrencies for Earn Section:", {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "Add Cryptocurrency", callback_data: "add_crypto" }],
+                        [{ text: "Remove Cryptocurrency", callback_data: "remove_crypto" }],
+                        [{ text: "Back to Admin Dashboard", callback_data: "admin_dashboard" }]
+                    ]
+                }
+            });
+            break;
+
+        case "admin_dashboard":
+            // Re-display the admin dashboard
+
+            bot.sendMessage(chatId, "👋 Welcome back, Admin! Access your dashboard below.", {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "User Stats", callback_data: "admin_user_stats" }],
+                        [{ text: "Manage Home Page", callback_data: "admin_manage_home" }],
+                        [{ text: "Manage Tasks", callback_data: "admin_manage_tasks" }],
+                        [{ text: "Referral Management", callback_data: "admin_referrals" }],
+                        [{ text: "Manage Withdrawals", callback_data: "admin_withdrawals" }],
+                        [{ text: "Earn Opportunities", callback_data: "admin_earn" }]
+                    ]
+                }
+            });
+            break;
+        case 'admin_manage_home':
+            showManageHome(chatId);
+            break;
+
+        case 'admin_manage_tasks':
+            showManageTasks(chatId);
+            break;
+
+        case "admin_edit_ad_title":
+            handleEditAdTitle(chatId);
+            break;
+
+        case "admin_edit_ad_description":
+            handleEditAdDescription(chatId);
+            break;
+
+        case "admin_edit_ad_link":
+            handleEditAdLink(chatId);
+            break;
+
+        case "admin_edit_main_logo":
+            handleEditMainLogo(chatId);
+            break;
+
+        case "admin_referrals":
+            bot.sendMessage(chatId, "Enter the new referral points:", { parse_mode: "Markdown" });
+            bot.once("message", async (msg) => {
+                const points = parseInt(msg.text, 10);
+                await Settings.updateOne({ key: "referral_points" }, { value: points }, { upsert: true });
+                bot.sendMessage(chatId, `✅ Referral points updated to ${points}`);
+            });
+            break;
+        case "admin_add_task":
+            addNewTask(chatId); // Start task creation flow
+            break;
+
+        case "admin_edit_task":
+            showEditTaskMenu(chatId); // Show menu to select task for editing
+            break;
+
+        case "admin_delete_task":
+            deleteTask(chatId); // Show menu to select task for deletion
+            break;
+
+        default:
+            if (query.data.startsWith("edit_task_")) {
+                const taskId = query.data.split("edit_task_")[1];
+                editTask(chatId, taskId); // Open specific task for editing
+            } else if (query.data.startsWith("delete_task_")) {
+                const taskId = query.data.split("_")[2];
+                confirmDeleteTask(chatId, taskId); // Confirm task deletion
+            }
+            // You can add further case handling for editing specific fields like name, description, etc.
+            break;
     }
 });
+
+async function addNewTask(chatId) {
+    bot.sendMessage(chatId, "Enter the task *name*:", { parse_mode: "Markdown" });
+
+    bot.once("message", async (msg) => {
+        const taskName = msg.text;
+        bot.sendMessage(chatId, "Enter the task *description*:", { parse_mode: "Markdown" });
+
+        bot.once("message", async (msg) => {
+            const taskDescription = msg.text;
+            bot.sendMessage(chatId, "Enter the *channel ID* (e.g., @testVectoroad):", { parse_mode: "Markdown" });
+
+            bot.once("message", async (msg) => {
+                const channelId = msg.text;
+                bot.sendMessage(chatId, "Enter the *points* for this task:", { parse_mode: "Markdown" });
+
+                bot.once("message", async (msg) => {
+                    const points = parseInt(msg.text, 10);
+
+                    const newTask = new Task({
+                        name: taskName,
+                        description: taskDescription,
+                        channelId: channelId,
+                        points: points,
+                        verifiedUsers: []
+                    });
+
+                    await newTask.save();
+                    bot.sendMessage(chatId, `✅ Task "${taskName}" added successfully!`);
+                    showManageTasks(chatId);
+                });
+            });
+        });
+    });
+}
+
+
+async function showEditTaskMenu(chatId) {
+    const tasks = await Task.find({});
+    const taskButtons = tasks.map(task => ([{ text: task.name, callback_data: `edit_task_${task._id}` }]));
+
+    const options = {
+        reply_markup: {
+            inline_keyboard: [...taskButtons, [{ text: "Back to Task Management", callback_data: "admin_manage_tasks" }]]
+        }
+    };
+
+    bot.sendMessage(chatId, "Select a task to edit:", options);
+}
+
+// Edit selected task fields
+async function editTask(chatId, taskId) {
+    const task = await Task.findById(taskId);
+    bot.sendMessage(chatId, `Editing task: *${task.name}*\nWhat would you like to edit?`, {
+        parse_mode: "Markdown",
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: "Edit Name", callback_data: `edit_task_name_${taskId}` }],
+                [{ text: "Edit Description", callback_data: `edit_task_description_${taskId}` }],
+                [{ text: "Edit Channel ID", callback_data: `edit_task_channel_${taskId}` }],
+                [{ text: "Edit Points", callback_data: `edit_task_points_${taskId}` }],
+                [{ text: "Back to Task Management", callback_data: "admin_manage_tasks" }]
+            ]
+        }
+    });
+}
+
+
+async function deleteTask(chatId) {
+    const tasks = await Task.find({});
+    const taskButtons = tasks.map(task => ([{ text: task.name, callback_data: `delete_task_${task._id}` }]));
+
+    const options = {
+        reply_markup: {
+            inline_keyboard: [...taskButtons, [{ text: "Back to Task Management", callback_data: "admin_manage_tasks" }]]
+        }
+    };
+
+    bot.sendMessage(chatId, "Select a task to delete:", options);
+}
+
+// Confirm and delete task
+async function confirmDeleteTask(chatId, taskId) {
+    const task = await Task.findByIdAndDelete(taskId);
+    bot.sendMessage(chatId, `🚮 Task "${task.name}" has been deleted.`);
+    showManageTasks(chatId);
+}
+
+
+
+function showManageTasks(chatId) {
+    const message = `
+    📋 *Task Management*
+    
+    Select an option to manage tasks:
+    `;
+
+    const options = {
+        parse_mode: "Markdown",
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: "Add New Task", callback_data: "admin_add_task" }],
+                [{ text: "Edit Existing Task", callback_data: "admin_edit_task" }],
+                [{ text: "Delete Task", callback_data: "admin_delete_task" }],
+                [{ text: "Back to Admin Menu", callback_data: "admin_menu" }]
+            ]
+        }
+    };
+
+    bot.sendMessage(chatId, message, options);
+}
+
+
+async function updateSetting(key, field, value) {
+    try {
+        // Directly update the specific field within "value"
+        await Settings.updateOne(
+            { key },
+            { $set: { [`value.${field}`]: value } },
+            { upsert: true } // Ensures the document is created if it doesn't exist
+        );
+
+        console.log(`Field ${field} in ${key} updated successfully.`);
+    } catch (error) {
+        console.error(`Error updating field ${field} in setting ${key}:`, error);
+    }
+}
+
+
+
+
+
+
+
+function handleEditAdDescription(chatId) {
+    bot.sendMessage(chatId, "Please enter the new *Ad Description*:", { parse_mode: "Markdown" });
+
+    // Listen for the next message to get the new description
+    bot.once("message", async (msg) => {
+        const newDescription = msg.text;
+
+        // Update the ad description in the database
+        await updateSetting("homePageSettings", "adDescription", newDescription);
+        bot.sendMessage(chatId, "✅ Ad Description updated successfully.");
+    });
+}
+
+function handleEditAdLink(chatId) {
+    bot.sendMessage(chatId, "Please enter the new *Ad Channel Link*:", { parse_mode: "Markdown" });
+
+    // Listen for the next message to get the new link
+    bot.once("message", async (msg) => {
+        const newLink = msg.text;
+
+        // Update the ad link in the database
+        await updateSetting("homePageSettings", "adChannelLink", newLink);
+        bot.sendMessage(chatId, "✅ Ad Channel Link updated successfully.");
+    });
+}
+
+function handleEditMainLogo(chatId) {
+    bot.sendMessage(chatId, "Please enter the new *Main logo link*:", { parse_mode: "Markdown" });
+    bot.once("message", async (msg) => {
+        const newLink = msg.text;
+
+        // Update the ad link in the database
+        const result = await Settings.updateOne(
+            { key: "MainMenuImage" },
+            { value: newLink }
+        );
+        if (result.modifiedCount > 0) {
+            console.log("Update successful:", result);
+        } else {
+            console.log("No document was modified. Check if the key exists.");
+        }
+        bot.sendMessage(chatId, "✅ Main logo Link updated successfully.");
+    });
+    return
+}
+
+
+function showManageHome(chatId) {
+    const manageHomeMessage = `
+    🏠 *Manage Home Page*
+
+    Here you can edit the home page settings. Select an option to update:
+    `;
+
+    const options = {
+        parse_mode: "Markdown",
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: "Edit Ad Title", callback_data: "admin_edit_ad_title" }],
+                [{ text: "Edit Ad Description", callback_data: "admin_edit_ad_description" }],
+                [{ text: "Edit Ad Link", callback_data: "admin_edit_ad_link" }],
+                [{ text: "Edit Main logo", callback_data: "admin_edit_main_logo" }],
+                [{ text: "Back to Admin Menu", callback_data: "admin_dashboard" }]
+            ]
+        }
+    };
+
+    bot.sendMessage(chatId, manageHomeMessage, options);
+}
+
+
+// Function to display user statistics for Admin
+async function showUserStats(chatId) {
+    try {
+        // Retrieve all users from the database
+        const users = await User.find({}, 'userId username firstName balance');
+
+        // If there are no users, inform the admin
+        if (users.length === 0) {
+            bot.sendMessage(chatId, "📊 No users found in the database.");
+            return;
+        }
+
+        // Construct the message
+        let statsMessage = `📊 *User Statistics*\n\nTotal Users: ${users.length}\n\n`;
+
+        users.forEach(user => {
+            statsMessage += `👤 *User ID*: ${user.userId}\n`;
+            statsMessage += `📛 *Username*: ${user.username || 'N/A'}\n`;
+            statsMessage += `📝 *First Name*: ${user.firstName || 'N/A'}\n`;
+            statsMessage += `💰 *Balance*: ${user.balance} points\n\n`;
+        });
+
+        // Send the message to the admin in chunks if too long
+        const messageChunks = chunkMessage(statsMessage, 4096); // Telegram message limit
+        messageChunks.forEach(chunk => bot.sendMessage(chatId, chunk, { parse_mode: 'Markdown' }));
+
+    } catch (error) {
+        console.error("Error retrieving user stats:", error);
+        bot.sendMessage(chatId, "⚠️ Unable to retrieve user statistics. Please try again later.");
+    }
+}
+
+// Helper function to chunk message if it exceeds Telegram's character limit
+function chunkMessage(message, maxLength) {
+    const chunks = [];
+    while (message.length > maxLength) {
+        let chunk = message.slice(0, maxLength);
+        const lastNewline = chunk.lastIndexOf('\n');
+        if (lastNewline > 0) chunk = chunk.slice(0, lastNewline);
+        chunks.push(chunk);
+        message = message.slice(chunk.length);
+    }
+    chunks.push(message);
+    return chunks;
+}
+
 
 
 // Display Earn Section with Opportunities
@@ -467,13 +856,19 @@ async function verifyTaskCompletion(chatId, taskId, points) {
 
 
 // Function to show the main menu
-function showMainMenu(chatId) {
+async function showMainMenu(chatId) {
     const menuMessage = `
     🎉 Main Menu
     Select an option below:
     `;
+    const adSetting = await Settings.findOne({ key: 'MainMenuImage' });
 
     const options = {
+
+    };
+    bot.sendPhoto(chatId, adSetting.value, {
+        caption: menuMessage,
+        parse_mode: "Markdown",
         reply_markup: {
             inline_keyboard: [
                 [{ text: "Home", callback_data: "home" }],
@@ -483,9 +878,9 @@ function showMainMenu(chatId) {
                 [{ text: "Earn", callback_data: "earn" }]
             ]
         }
-    };
+    });
 
-    bot.sendMessage(chatId, menuMessage, options);
+    // bot.sendMessage(chatId, menuMessage, options);
 }
 
 // Individual section functions with Back to Main Menu button
@@ -495,20 +890,22 @@ async function showHome(chatId) {
         const user = await User.findOne({ userId: chatId });
         const balance = user ? user.balance : 0; // Default to 0 if user not found
 
+        const adSetting = await Settings.findOne({ key: 'homePageSettings' });
+
         // Home page message with user's balance
         const homeMessage = `
         🏠 *Home Page*
         
         💰 *Your Current Balance:* ${balance} points
         
-        📢 *Promote Your Ad!* Click below to view our ad channel for more info.
+        📢 *${adSetting.value.adTitle || ""}* ${adSetting.value.adDescription || ""}
         `;
 
         const options = {
             parse_mode: "Markdown",
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: "Visit Ad Channel", url: "https://t.me/vectoroad" }], // Replace with your ad channel link
+                    [{ text: `${adSetting?.value?.adButton}`, url: `${adSetting.value.adChannelLink}` }],
                     [{ text: "Back to Main Menu", callback_data: "main_menu" }]
                 ]
             }
