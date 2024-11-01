@@ -46,6 +46,7 @@ bot.onText(/\/start(?: (.*))?/, async (msg, match) => {
         // Process referral if a referral parameter exists
         if (referralParam && referralParam.startsWith("referral_")) {
             const referrerId = referralParam.split("_")[1];
+            const referPoints = await Settings.findOne({ key: "referral_points" })
 
             // Ensure the referral is valid and not self-referred
             if (referrerId && referrerId !== chatId.toString()) {
@@ -60,7 +61,7 @@ bot.onText(/\/start(?: (.*))?/, async (msg, match) => {
                     const referrer = await User.findOne({ userId: referrerId });
                     if (referrer) {
                         referrer.referrals += 1;
-                        const referralPoints = 5; // Points awarded for each referral
+                        const referralPoints = referPoints?.value || 5; // Points awarded for each referral
                         referrer.balance += referralPoints;
                         await referrer.save();
 
@@ -346,7 +347,7 @@ bot.on("callback_query", async (query) => {
             bot.sendMessage(chatId, "Enter the new referral points:", { parse_mode: "Markdown" });
             bot.once("message", async (msg) => {
                 const points = parseInt(msg.text, 10);
-                await Settings.updateOne({ key: "referral_points" }, { value: points }, { upsert: true });
+                await Settings.updateOne({ key: "referral_points" }, { value: points });
                 bot.sendMessage(chatId, `✅ Referral points updated to ${points}`);
             });
             break;
@@ -478,7 +479,7 @@ function showManageTasks(chatId) {
                 [{ text: "Add New Task", callback_data: "admin_add_task" }],
                 [{ text: "Edit Existing Task", callback_data: "admin_edit_task" }],
                 [{ text: "Delete Task", callback_data: "admin_delete_task" }],
-                [{ text: "Back to Admin Menu", callback_data: "admin_menu" }]
+                [{ text: "Back to Admin Menu", callback_data: "admin_dashboard" }]
             ]
         }
     };
@@ -746,6 +747,7 @@ async function showRefer(chatId) {
     try {
         // Retrieve user data from MongoDB
         const user = await User.findOne({ userId: chatId });
+        const referPoints = await Settings.findOne({ key: "referral_points" })
 
         // If user exists, get their referral count; otherwise, set it to 0
         const referrals = user ? user.referrals : 0;
@@ -757,7 +759,7 @@ async function showRefer(chatId) {
         const referMessage = `
         🔗 *Refer and Earn*
         
-        Share your unique referral link to earn points for every new user who joins:
+        Share your unique referral link to earn ${referPoints?.value} points for every new user who joins:
         \`${referralLink}\`  👈 Copy this link and share it!
 
         Total Referrals: ${referrals}
