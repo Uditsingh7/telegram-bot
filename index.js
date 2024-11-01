@@ -97,10 +97,10 @@ bot.onText(/\/start(?: (.*))?/, async (msg, match) => {
             const welcomeMessage = `
             👋 Welcome to EarnHub Bot!
 
-            To get started, please join our official channel:
+To get started, please join our official channel:
             👉 ${channelLink}
 
-            Once you've joined, click "Verify" below to continue.
+Once you've joined, click "Verify" below to continue.
             `;
 
             const options = {
