@@ -1,6 +1,5 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
-const mongoString = 'mongodb+srv://how3:zJA6GKeimXAJJBG8@editorapi.aiarnwk.mongodb.net/bot-telegram?retryWrites=true&w=majority'
 const mongoose = require('mongoose');
 const User = require('./models/User');
 const Task = require('./models/Task');
@@ -35,6 +34,7 @@ bot.onText(/\/start(?: (.*))?/, async (msg, match) => {
                 userId: chatId,
                 username: msg.from.username || 'N/A',
                 firstName: msg.from.first_name || 'N/A',
+                lastName: msg.from.last_name || 'N/A',
                 balance: 100,
                 referrals: 0,
                 completedTasks: [],

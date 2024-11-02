@@ -4,8 +4,9 @@ const userSchema = new mongoose.Schema({
     userId: { type: String, required: true, unique: true },
     balance: { type: Number, default: 0 },
     referrals: { type: Number, default: 0 },
-    username: { type: String },          
-    firstName: { type: String },          
+    username: { type: String },
+    firstName: { type: String },
+    lastName: { type: String },
     withdrawalDetails: {
         exchangeId: String,
         cryptoAddress: String,
