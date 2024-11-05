@@ -6,6 +6,7 @@ const Task = require('./models/Task');
 const Referral = require('./models/Referral');
 const Transaction = require('./models/Transaction');
 const Settings = require('./models/Settings');
+const EarningOpportunity = require('./models/EarnOpportunity')
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
@@ -246,35 +247,8 @@ bot.on("callback_query", async (query) => {
             });
             break;
 
-        // Earn Section (Deposit/Withdrawal Handlers for Opportunities)
-        case "deposit_opportunity_a":
-            handleDeposit(chatId, "Opportunity A");
-            break;
-
-        case "withdraw_opportunity_a":
-            handleWithdrawal(chatId, "Opportunity A");
-            break;
-
-        case "deposit_opportunity_b":
-            handleDeposit(chatId, "Opportunity B");
-            break;
-
-        case "withdraw_opportunity_b":
-            handleWithdrawal(chatId, "Opportunity B");
-            break;
-
-        case "confirm_deposit_opportunity_a":
-        case "confirm_deposit_opportunity_b":
-            bot.sendMessage(chatId, "✅ Your deposit has been confirmed. Thank you!");
-            break;
-
-        case "confirm_withdrawal_opportunity_a":
-        case "confirm_withdrawal_opportunity_b":
-            bot.sendMessage(chatId, "✅ Your withdrawal request has been submitted. It will be processed within a week.");
-            break;
-
         case "earn":
-            showEarn(chatId);
+            showEarnOpportunities(chatId);
             break;
 
         // Admin shorcts
@@ -292,15 +266,7 @@ bot.on("callback_query", async (query) => {
             break;
 
         case "admin_earn":
-            bot.sendMessage(chatId, "Manage cryptocurrencies for Earn Section:", {
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: "Add Cryptocurrency", callback_data: "add_crypto" }],
-                        [{ text: "Remove Cryptocurrency", callback_data: "remove_crypto" }],
-                        [{ text: "Back to Admin Dashboard", callback_data: "admin_dashboard" }]
-                    ]
-                }
-            });
+            await showManageWithdrawalsMenu(chatId)
             break;
 
         case "admin_dashboard":
@@ -362,8 +328,31 @@ bot.on("callback_query", async (query) => {
         case "admin_delete_task":
             deleteTask(chatId); // Show menu to select task for deletion
             break;
-
+        case "add_earning_opportunity":
+            await promptAddEarningOpportunity(chatId);
+            break;
+        case "delete_earning_opportunity":
+            await promptDeleteEarningOpportunity(chatId);
+            break;
+        case "edit_earning_opportunity":
+            await promptEditEarningOpportunity(chatId);
+            break;
         default:
+            const data = query.data;
+
+            if (data.startsWith("deposit_")) {
+                const opportunityId = data.split("_")[1];
+                await handleDeposit(chatId, opportunityId);
+            } else if (data.startsWith("withdraw_")) {
+                const opportunityId = data.split("_")[1];
+                await handleWithdrawal(chatId, opportunityId);
+            } else if (data.startsWith("confirm_deposit_")) {
+                const opportunityId = data.split("_")[2];
+                await confirmDeposit(chatId, opportunityId);
+            } else if (data.startsWith("confirm_withdrawal_")) {
+                const opportunityId = data.split("_")[2];
+                await confirmWithdrawal(chatId, opportunityId);
+            }
             if (query.data.startsWith("edit_task_")) {
                 const taskId = query.data.split("edit_task_")[1];
                 editTask(chatId, taskId); // Open specific task for editing
@@ -371,10 +360,516 @@ bot.on("callback_query", async (query) => {
                 const taskId = query.data.split("_")[2];
                 confirmDeleteTask(chatId, taskId); // Confirm task deletion
             }
-            // You can add further case handling for editing specific fields like name, description, etc.
+            if (data.startsWith('delete_opportunity_')) {
+                const opportunityId = data.split('_')[2];
+                await deleteEarningOpportunity(chatId, opportunityId);
+            }
+            // Check if the callback data indicates an edit opportunity action
+            if (data.startsWith('edit_opportunity_')) {
+                const opportunityId = data.split('_')[2];
+                await showEditableFields(chatId, opportunityId);
+            }
+
+            // Check if the callback data indicates an edit opportunity field action
+            if (data.startsWith('edit_field_opportunity_')) {
+                const parts = data.split('_');
+                console.log("parts: ", parts)
+                const field = parts[3]; // Extract the field to be edited
+                const opportunityId = parts[4]; // Extract the opportunity ID
+                await promptForNewValue(chatId, opportunityId, field);
+            }
+
             break;
     }
 });
+
+// Function to prompt the admin to edit an earning opportunity
+async function promptEditEarningOpportunity(chatId) {
+    try {
+        // Fetch all earning opportunities
+        const opportunities = await EarningOpportunity.find({});
+
+        // Check if there are any opportunities
+        if (opportunities.length === 0) {
+            bot.sendMessage(chatId, "⚠️ No earning opportunities found.");
+            return;
+        }
+
+        // Construct a list of opportunities as inline keyboard buttons
+        let message = "Select an earning opportunity to edit:";
+        const inlineKeyboard = opportunities.map(opportunity => [
+            { text: opportunity.name, callback_data: `edit_opportunity_${opportunity._id}` }
+        ]);
+
+        const options = {
+            parse_mode: "Markdown",
+            reply_markup: { inline_keyboard: inlineKeyboard }
+        };
+
+        bot.sendMessage(chatId, message, options);
+    } catch (error) {
+        console.error("Error fetching earning opportunities:", error);
+        bot.sendMessage(chatId, "⚠️ Unable to fetch earning opportunities. Please try again later.");
+    }
+}
+
+
+// Function to show editable fields for the selected opportunity
+async function showEditableFields(chatId, opportunityId) {
+    const opportunity = await EarningOpportunity.findById(opportunityId);
+
+    if (!opportunity) {
+        bot.sendMessage(chatId, "⚠️ Earning opportunity not found.");
+        return;
+    }
+
+    const options = {
+        parse_mode: "Markdown",
+        reply_markup: {
+            inline_keyboard: [
+                // [{ text: `Edit Name (Current: ${opportunity.name})`, callback_data: `edit_field_opportunity_name_${opportunityId}` }],
+                // [{ text: `Edit Description (Current: ${opportunity.description})`, callback_data: `edit_field_opportunity_description_${opportunityId}` }],
+                // [{ text: `Edit Address (Current: ${opportunity.address})`, callback_data: `edit_field_opportunity_address_${opportunityId}` }],
+                // [{ text: `Edit QR Code Link (Current: ${opportunity.qrCodeLink || "Not set"})`, callback_data: `edit_field_opportunity_qrCodeLink_${opportunityId}` }],
+                // [{ text: `Edit Currency (Current: ${opportunity.currency})`, callback_data: `edit_field_opportunity_currency_${opportunityId}` }],
+                // [{ text: `Edit Min Deposit (Current: ${opportunity.minDeposit})`, callback_data: `edit_field_opportunity_minDeposit_${opportunityId}` }],
+                // [{ text: `Edit Min Withdrawal (Current: ${opportunity.minWithdrawal})`, callback_data: `edit_field_opportunity_minWithdrawal_${opportunityId}` }],
+                // [{ text: `Edit Processing Time (Current: ${opportunity.processingTime})`, callback_data: `edit_field_opportunity_processingTime_${opportunityId}` }],
+                // [{ text: `Edit Confirmation Message (Current: ${opportunity.confirmMessage || "Default message"})`, callback_data: `edit_field_opportunity_confirmMessage_${opportunityId}` }],
+                // [{ text: "⬅️ Back to Manage Withrawals", callback_data: "admin_earn" }]
+                [{ text: `Edit Name`, callback_data: `edit_field_opportunity_name_${opportunityId}` }],
+                [{ text: `Edit Description`, callback_data: `edit_field_opportunity_description_${opportunityId}` }],
+                [{ text: `Edit Address`, callback_data: `edit_field_opportunity_address_${opportunityId}` }],
+                [{ text: `Edit QR Code Link`, callback_data: `edit_field_opportunity_qrCodeLink_${opportunityId}` }],
+                [{ text: `Edit Currency`, callback_data: `edit_field_opportunity_currency_${opportunityId}` }],
+                [{ text: `Edit Min Deposit`, callback_data: `edit_field_opportunity_minDeposit_${opportunityId}` }],
+                [{ text: `Edit Min Withdrawal`, callback_data: `edit_field_opportunity_minWithdrawal_${opportunityId}` }],
+                [{ text: `Edit Processing Time`, callback_data: `edit_field_opportunity_processingTime_${opportunityId}` }],
+                [{ text: `Edit Confirmation Message`, callback_data: `edit_field_opportunity_confirmMessage_${opportunityId}` }],
+                [{ text: "⬅️ Back to Manage Withrawals", callback_data: "admin_earn" }]
+            ]
+        }
+    };
+
+    bot.sendMessage(chatId, "Select the field you want to edit. Current values are shown in parentheses:", options);
+}
+
+
+
+// Function to prompt the admin for the new value of the selected field
+async function promptForNewValue(chatId, opportunityId, field) {
+    const fieldDisplayNames = {
+        name: "Name",
+        description: "Description",
+        address: "Address",
+        qrCodeLink: "QR Code Link",
+        currency: "Currency",
+        minDeposit: "Minimum Deposit",
+        minWithdrawal: "Minimum Withdrawal",
+        processingTime: "Processing Time",
+        confirmMessage: "Confirmation Message"
+    };
+
+    bot.sendMessage(chatId, `Please enter the new value for ${fieldDisplayNames[field]}:`);
+
+    bot.on('message', async function handler(msg) {
+        if (msg.chat.id !== chatId) return; // Ensure we're only processing the correct user's input
+
+        const newValue = msg.text;
+        bot.removeListener('message', handler); // Remove listener after receiving input
+
+        await updateEarningOpportunityField(chatId, opportunityId, field, newValue);
+    });
+}
+
+// Function to update a specific field of an earning opportunity
+async function updateEarningOpportunityField(chatId, opportunityId, field, newValue) {
+    try {
+        // Prepare the update object dynamically
+        const update = {};
+        update[field] = field === 'minDeposit' || field === 'minWithdrawal' ? parseFloat(newValue) : newValue;
+
+        // Update the specified field in the database
+        const result = await EarningOpportunity.findByIdAndUpdate(opportunityId, update, { new: true });
+
+        if (result) {
+            await bot.sendMessage(chatId, `✅ ${field.charAt(0).toUpperCase() + field.slice(1)} has been updated successfully.`);
+        } else {
+            await bot.sendMessage(chatId, "⚠️ Earning opportunity not found or update failed.");
+        }
+    } catch (error) {
+        console.error("Error updating earning opportunity:", error);
+        await bot.sendMessage(chatId, "⚠️ Unable to update the earning opportunity. Please try again.");
+    }
+
+    // Show the Manage Withdrawals menu again after editing
+    await showManageWithdrawalsMenu(chatId);
+}
+
+// Function to prompt the admin to delete an earning opportunity
+async function promptDeleteEarningOpportunity(chatId) {
+    try {
+        // Fetch all earning opportunities
+        const opportunities = await EarningOpportunity.find({});
+
+        // Check if there are any opportunities
+        if (opportunities.length === 0) {
+            bot.sendMessage(chatId, "⚠️ No earning opportunities found.");
+            return;
+        }
+
+        // Construct a list of opportunities as inline keyboard buttons
+        let message = "Select an earning opportunity to delete:";
+        const inlineKeyboard = opportunities.map(opportunity => [
+            { text: opportunity.name, callback_data: `delete_opportunity_${opportunity._id}` }
+        ]);
+
+        const options = {
+            parse_mode: "Markdown",
+            reply_markup: { inline_keyboard: inlineKeyboard }
+        };
+
+        bot.sendMessage(chatId, message, options);
+    } catch (error) {
+        console.error("Error fetching earning opportunities:", error);
+        bot.sendMessage(chatId, "⚠️ Unable to fetch earning opportunities. Please try again later.");
+    }
+}
+
+// Function to delete an earning opportunity by ID
+async function deleteEarningOpportunity(chatId, opportunityId) {
+    try {
+        // Find and delete the selected opportunity
+        const result = await EarningOpportunity.findByIdAndDelete(opportunityId);
+
+        if (result) {
+            await bot.sendMessage(chatId, `✅ Earning opportunity "${result.name}" has been deleted successfully.`);
+        } else {
+            await bot.sendMessage(chatId, "⚠️ Earning opportunity not found or already deleted.");
+        }
+    } catch (error) {
+        console.error("Error deleting earning opportunity:", error);
+        await bot.sendMessage(chatId, "⚠️ Unable to delete the earning opportunity. Please try again.");
+    }
+
+    // Show the Manage Withdrawals menu again after deletion
+    await showManageWithdrawalsMenu(chatId);
+}
+
+// Function to prompt admin to add a new earning opportunity with a step-by-step approach
+async function promptAddEarningOpportunity(chatId) {
+    bot.sendMessage(
+        chatId,
+        "Let's add a new earning opportunity! 😊 Please follow the steps to provide details.\n" +
+        "Reply with each detail as prompted, and you can type 'cancel' at any time to stop."
+    );
+
+    const opportunityData = {};
+
+    // Ask for each field one at a time
+    const askForField = async (field, promptMessage) => {
+        await bot.sendMessage(chatId, promptMessage);
+
+        return new Promise((resolve) => {
+            bot.on('message', function handler(msg) {
+                if (msg.chat.id !== chatId) return; // Make sure it's the correct user
+                if (msg.text.toLowerCase() === 'cancel') {
+                    bot.sendMessage(chatId, "Operation cancelled. 😊");
+                    bot.removeListener('message', handler); // Remove listener to prevent future triggers
+                    resolve(null); // Exit the prompt
+                } else {
+                    opportunityData[field] = msg.text;
+                    bot.removeListener('message', handler);
+                    resolve(msg.text);
+                }
+            });
+        });
+    };
+
+    // Step-by-step prompts for each field
+    const fields = [
+        { field: 'name', prompt: "What's the name of this earning opportunity?" },
+        { field: 'description', prompt: "Provide a brief description of this opportunity." },
+        { field: 'address', prompt: "Enter the address where funds should be sent." },
+        { field: 'qrCodeLink', prompt: "Provide a link to the QR code image (optional). You can skip this by typing 'skip'." },
+        { field: 'currency', prompt: "What currency will be used (e.g., BTC, ETH)?" },
+        { field: 'minDeposit', prompt: "What's the minimum deposit amount?" },
+        { field: 'minWithdrawal', prompt: "What's the minimum withdrawal amount?" },
+        { field: 'processingTime', prompt: "How long does it take to process (e.g., '1 week')?" },
+        { field: 'confirmMessage', prompt: "Enter a custom confirmation message, or leave blank for default." }
+    ];
+
+    for (const { field, prompt } of fields) {
+        const response = await askForField(field, prompt);
+        if (response === null) return; // If operation is cancelled, exit the function
+        if (response.toLowerCase() === 'skip' && field === 'qrCodeLink') {
+            opportunityData[field] = ''; // Optional field for QR code
+        }
+    }
+
+    // Confirm and save the new opportunity
+    await addEarningOpportunity(chatId, opportunityData);
+    // Send admin back to the "Manage Withdrawals" menu
+    showManageWithdrawalsMenu(chatId)
+}
+
+// Function to add a new earning opportunity to the database
+async function addEarningOpportunity(chatId, data) {
+    try {
+        const newOpportunity = new EarningOpportunity({
+            name: data.name,
+            description: data.description,
+            address: data.address,
+            qrCodeLink: data.qrCodeLink || '', // Optional field
+            currency: data.currency,
+            minDeposit: parseFloat(data.minDeposit),
+            minWithdrawal: parseFloat(data.minWithdrawal),
+            processingTime: data.processingTime,
+            confirmMessage: data.confirmMessage || "Your request has been submitted and will be processed soon."
+        });
+
+        await newOpportunity.save();
+        bot.sendMessage(chatId, `🎉 Success! The earning opportunity "${data.name}" has been added.`);
+    } catch (error) {
+        console.error("Error adding earning opportunity:", error);
+        bot.sendMessage(chatId, "⚠️ Unable to add the new earning opportunity. Please try again.");
+    }
+}
+
+
+
+// Function to show the Manage Withdrawals menu to the admin
+async function showManageWithdrawalsMenu(chatId) {
+    const options = {
+        parse_mode: "Markdown",
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: "➕ Add Earning Opportunity", callback_data: "add_earning_opportunity" }],
+                [{ text: "❌ Delete Earning Opportunity", callback_data: "delete_earning_opportunity" }],
+                [{ text: "✏️ Edit Earning Opportunity", callback_data: "edit_earning_opportunity" }],
+                [{ text: "⬅️ Back to Main Menu", callback_data: "main_menu" }]
+            ]
+        }
+    };
+
+    bot.sendMessage(chatId, "🔧 *Manage Withdrawals*\n\nChoose an option:", options);
+}
+
+
+// Updated function to handle deposit with memo as userId
+async function handleDeposit(chatId, opportunityId) {
+    try {
+        const opportunity = await EarningOpportunity.findById(opportunityId);
+
+        // Check if the opportunity exists
+        if (!opportunity) {
+            bot.sendMessage(chatId, "⚠️ Earning opportunity not found. Please try again.");
+            return;
+        }
+
+        // Message with deposit address and memo (user ID)
+        const depositMessage = `
+        💸 *Deposit to ${opportunity.name}*
+
+        Send your deposit to the address below:
+        - Address: \`${opportunity.address}\`
+        - Memo: \`${chatId}\` (Use this memo for identification)
+
+        Once you've sent the amount, please confirm by clicking "Confirm Deposit".
+        `;
+
+        const options = {
+            parse_mode: "Markdown",
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: "Confirm Deposit", callback_data: `confirm_deposit_${opportunityId}` }],
+                    [{ text: "Back to Earn Section", callback_data: "earn" }]
+                ]
+            }
+        };
+
+        // Send deposit details and confirm button to the user
+        bot.sendMessage(chatId, depositMessage, options);
+
+    } catch (error) {
+        console.error("Error handling deposit:", error);
+        bot.sendMessage(chatId, "⚠️ Unable to proceed with deposit. Please try again later.");
+    }
+}
+
+
+// Updated function to handle withdrawal with a request initiation
+async function handleWithdrawal(chatId, opportunityId) {
+    try {
+        const opportunity = await EarningOpportunity.findById(opportunityId);
+        const user = await User.findOne({ userId: chatId });
+
+        if (!opportunity) {
+            bot.sendMessage(chatId, "⚠️ Earning opportunity not found. Please try again.");
+            return;
+        }
+
+        if (!user) {
+            bot.sendMessage(chatId, "⚠️ User not found. Please try again.");
+            return;
+        }
+
+        // Display the withdrawal details
+        const withdrawalMessage = `
+        💸 *Request Withdrawal for ${opportunity.name}*
+
+        Minimum withdrawal amount is ${opportunity.minWithdrawal} ${opportunity.currency}.
+        Withdrawals are processed manually on a weekly basis.
+
+        Click "Confirm Withdrawal" to proceed.
+        `;
+
+        const options = {
+            parse_mode: "Markdown",
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: "Confirm Withdrawal", callback_data: `confirm_withdrawal_${opportunityId}` }],
+                    [{ text: "Back to Earn Section", callback_data: "earn" }]
+                ]
+            }
+        };
+
+        bot.sendMessage(chatId, withdrawalMessage, options);
+    } catch (error) {
+        console.error("Error handling withdrawal:", error);
+        bot.sendMessage(chatId, "⚠️ Unable to proceed with withdrawal. Please try again later.");
+    }
+}
+
+async function confirmWithdrawal(chatId, opportunityId) {
+    try {
+        // Retrieve user and opportunity details
+        const user = await User.findOne({ userId: chatId });
+        const opportunity = await EarningOpportunity.findById(opportunityId);
+
+        if (!user) {
+            bot.sendMessage(chatId, "⚠️ User not found.");
+            return;
+        }
+        if (!opportunity) {
+            bot.sendMessage(chatId, "⚠️ Earning opportunity not found. Please try again.");
+            return;
+        }
+
+        // Retrieve currency and minimum withdrawal amount from the opportunity
+        const currency = opportunity.currency;
+        const amount = opportunity.minWithdrawal;
+
+        // Access balance for the specified currency using Map's .get() method
+        const currentBalance = user.cryptoBalances.get(currency) || 0;
+
+        // Check if the user has enough balance to withdraw
+        if (currentBalance < amount) {
+            bot.sendMessage(chatId, `⚠️ Insufficient ${currency} balance for this withdrawal request.`);
+            return;
+        }
+
+        // Deduct the withdrawal amount immediately from user's cryptoBalances
+        user.cryptoBalances.set(currency, currentBalance - amount);
+        await user.save();
+
+        // Create a new pending withdrawal transaction
+        const transaction = new Transaction({
+            userId: user._id,
+            type: 'withdrawal',
+            currency,
+            amount,
+            status: 'pending', // To be processed in the weekly batch
+        });
+
+        await transaction.save();
+
+        bot.sendMessage(chatId, `✅ Your withdrawal request of ${amount} ${currency} has been submitted. Processing will occur within the week.`);
+    } catch (error) {
+        console.error("Error confirming withdrawal:", error);
+        bot.sendMessage(chatId, "⚠️ Unable to confirm withdrawal. Please try again later.");
+    }
+}
+
+// Confirmation function to handle both deposit and withdrawal confirmation
+async function confirmDeposit(chatId, opportunityId) {
+    try {
+        // Retrieve user and opportunity details
+        const user = await User.findOne({ userId: chatId });
+        const opportunity = await EarningOpportunity.findById(opportunityId);
+
+        if (!user) {
+            bot.sendMessage(chatId, "⚠️ User not found.");
+            return;
+        }
+        if (!opportunity) {
+            bot.sendMessage(chatId, "⚠️ Earning opportunity not found. Please try again.");
+            return;
+        }
+
+        // Retrieve currency and minimum deposit amount from the opportunity
+        const currency = opportunity.currency;
+        const amount = opportunity.minDeposit;
+
+        // Create a new pending deposit transaction
+        const transaction = new Transaction({
+            userId: user._id,
+            type: 'deposit',
+            currency,
+            amount,
+            status: 'pending', // Waiting for admin verification
+            memo: user.userId // Using user ID as memo for easy tracking
+        });
+
+        await transaction.save();
+
+        bot.sendMessage(chatId, `✅ Your deposit request of ${amount} ${currency} has been confirmed. An admin will verify it shortly.`);
+    } catch (error) {
+        console.error("Error confirming deposit:", error);
+        bot.sendMessage(chatId, "⚠️ Unable to confirm deposit. Please try again later.");
+    }
+}
+
+
+
+
+
+
+async function showEarnOpportunities(chatId) {
+    try {
+        // Fetch all earning opportunities from the database
+        const opportunities = await EarningOpportunity.find({});
+
+        // Build the message with each opportunity's details
+        let earnMessage = `💰 *Earning Opportunities*\n\nSelect an option to deposit or withdraw:\n\n`;
+        const options = {
+            parse_mode: "Markdown",
+            reply_markup: {
+                inline_keyboard: []
+            }
+        };
+
+        // Add each opportunity's details to the message
+        opportunities.forEach((opportunity) => {
+            earnMessage += `🔹 *${opportunity.name}*\n${opportunity.description}\n\n`;
+            options.reply_markup.inline_keyboard.push(
+                [
+                    { text: `Deposit to ${opportunity.name}`, callback_data: `deposit_${opportunity._id}` },
+                    { text: `Withdraw from ${opportunity.name}`, callback_data: `withdraw_${opportunity._id}` }
+                ]
+            );
+        });
+
+        // Add a button to return to the main menu
+        options.reply_markup.inline_keyboard.push([{ text: "Back to Main Menu", callback_data: "main_menu" }]);
+
+        // Send the message
+        bot.sendMessage(chatId, earnMessage, options);
+    } catch (error) {
+        console.error("Error fetching earning opportunities:", error);
+        bot.sendMessage(chatId, "⚠️ Unable to fetch earning opportunities. Please try again later.");
+    }
+}
 
 async function addNewTask(chatId) {
     bot.sendMessage(chatId, "Enter the task *name*:", { parse_mode: "Markdown" });
@@ -596,10 +1091,15 @@ async function showUserStats(chatId) {
         let statsMessage = `📊 *User Statistics*\n\nTotal Users: ${users.length}\n\n`;
 
         users.forEach(user => {
-            statsMessage += `👤 *User ID*: ${user.userId}\n`;
-            statsMessage += `📛 *Username*: ${user.username || 'N/A'}\n`;
-            statsMessage += `📝 *First Name*: ${user.firstName || 'N/A'}\n`;
-            statsMessage += `💰 *Balance*: ${user.balance} points\n\n`;
+            const userId = user.userId; // No escaping needed for userId if it’s purely numeric
+            const username = user.username ? escapeMarkdown(user.username) : 'N/A'; // Escape username only if it may have special characters
+            const firstName = user.firstName ? escapeMarkdown(user.firstName) : 'N/A'; // Escape firstName only if it may have special characters
+            const balance = user.balance || 0;
+
+            statsMessage += `👤 *User ID*: ${userId}\n`;
+            statsMessage += `📛 *Username*: ${username}\n`;
+            statsMessage += `📝 *First Name*: ${firstName}\n`;
+            statsMessage += `💰 *Balance*: ${balance} points\n\n`;
         });
 
         // Send the message to the admin in chunks if too long
@@ -626,35 +1126,9 @@ function chunkMessage(message, maxLength) {
     return chunks;
 }
 
-
-
-// Display Earn Section with Opportunities
-function showEarn(chatId) {
-    const earnMessage = `
-    💰 *Earning Opportunities*
-
-    Here are some ways you can earn with us:
-
-    1️⃣ *Opportunity A* - Earn rewards by depositing to our platform.
-    2️⃣ *Opportunity B* - Grow your balance with deposits and withdrawals.
-
-    Select an option below to deposit or withdraw.
-    `;
-
-    const options = {
-        parse_mode: "Markdown",
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: "Deposit to Opportunity A", callback_data: "deposit_opportunity_a" }],
-                [{ text: "Withdraw from Opportunity A", callback_data: "withdraw_opportunity_a" }],
-                [{ text: "Deposit to Opportunity B", callback_data: "deposit_opportunity_b" }],
-                [{ text: "Withdraw from Opportunity B", callback_data: "withdraw_opportunity_b" }],
-                [{ text: "Back to Main Menu", callback_data: "main_menu" }]
-            ]
-        }
-    };
-
-    bot.sendMessage(chatId, earnMessage, options);
+// Helper function to escape Markdown special characters
+function escapeMarkdown(text) {
+    return text.replace(/([_*[\]()~`>#+-=|{}.!])/g, '\\$1');
 }
 
 // Handle Deposit Flow
@@ -686,29 +1160,6 @@ function handleDeposit(chatId, opportunity) {
     bot.sendMessage(chatId, depositMessage, options);
 }
 
-// Handle Withdrawal Flow
-function handleWithdrawal(chatId, opportunity) {
-    const withdrawalMessage = `
-    💸 *Withdrawal Request for ${opportunity}*
-
-    Your current balance for ${opportunity} will be processed for withdrawal. 
-    Withdrawals are processed weekly.
-
-    Click "Confirm Withdrawal" to proceed.
-    `;
-
-    const options = {
-        parse_mode: "Markdown",
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: "Confirm Withdrawal", callback_data: `confirm_withdrawal_${opportunity.toLowerCase()}` }],
-                [{ text: "Back to Earn Section", callback_data: "earn" }]
-            ]
-        }
-    };
-
-    bot.sendMessage(chatId, withdrawalMessage, options);
-}
 
 
 
@@ -747,22 +1198,42 @@ async function showRefer(chatId) {
     try {
         // Retrieve user data from MongoDB
         const user = await User.findOne({ userId: chatId });
-        const referPoints = await Settings.findOne({ key: "referral_points" })
+        const referPoints = await Settings.findOne({ key: "referral_points" });
 
-        // If user exists, get their referral count; otherwise, set it to 0
-        const referrals = user ? user.referrals : 0;
-
-        // Generate the referral link
+        // Generate the referral link without wrapping in backticks
         const referralLink = `https://t.me/${process.env.BOT_USERNAME}?start=referral_${chatId}`;
 
-        // Construct the referral message
-        const referMessage = `
-        🔗 *Refer and Earn*
-        
-        Share your unique referral link to earn ${referPoints?.value} points for every new user who joins:
-        \`${referralLink}\`  👈 Copy this link and share it!
+        // Retrieve all referrals for this user from the Referral collection
+        const referrals = await Referral.find({ referrerId: chatId });
+        const referralsCount = referrals ? referrals.length : 0;
 
-        Total Referrals: ${referrals}
+        // Generate list of referred users
+        let referredUsersList = "";
+        if (referralsCount > 0) {
+            referredUsersList += "*Users You Invited:*\n";
+            for (const [index, referral] of referrals.entries()) {
+                const referredUser = await User.findOne({ userId: referral.referredUserId });
+                const displayName = referredUser
+                    ? referredUser.username || referredUser.firstName || "Unknown User"
+                    : "Unknown User";
+                referredUsersList += `   ${index + 1}. ${displayName}\n`;
+            }
+        } else {
+            referredUsersList = "_No referrals yet._";
+        }
+
+        // Construct the referral message with improved formatting
+        const referMessage = `
+📢 *Refer and Earn*
+
+Invite your friends to join and earn *${referPoints?.value || 0} points* for each successful referral! Share your unique link below:
+
+🔗 *Your Referral Link:*
+${referralLink}
+
+👥 *Total Referrals:* ${referralsCount}
+
+${referredUsersList}
         `;
 
         const options = {
@@ -891,23 +1362,32 @@ async function showHome(chatId) {
         // Retrieve user data from MongoDB
         const user = await User.findOne({ userId: chatId });
         const balance = user ? user.balance : 0; // Default to 0 if user not found
-
         const adSetting = await Settings.findOne({ key: 'homePageSettings' });
 
-        // Home page message with user's balance
+        // Check if there are any crypto balances to display
+        let cryptoBalanceMessage = '';
+        if (user && user.cryptoBalances && user.cryptoBalances.size > 0) {
+            cryptoBalanceMessage = '\n\n💰 *Your Crypto Balances:*\n';
+            for (let [currency, amount] of user.cryptoBalances.entries()) {
+                cryptoBalanceMessage += `- ${currency}: ${amount}\n`;
+            }
+        }
+
+        // Home page message with user's regular balance and crypto balances if available
         const homeMessage = `
         🏠 *Home Page*
         
         💰 *Your Current Balance:* ${balance} points
+        ${cryptoBalanceMessage}
         
-        📢 *${adSetting.value.adTitle || ""}* ${adSetting.value.adDescription || ""}
+        📢 *${adSetting?.value?.adTitle || ""}* ${adSetting?.value?.adDescription || ""}
         `;
 
         const options = {
             parse_mode: "Markdown",
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: `${adSetting?.value?.adButton}`, url: `${adSetting.value.adChannelLink}` }],
+                    [{ text: `${adSetting?.value?.adButton || "Learn More"}`, url: `${adSetting?.value?.adChannelLink || "#"}` }],
                     [{ text: "Back to Main Menu", callback_data: "main_menu" }]
                 ]
             }
@@ -922,25 +1402,30 @@ async function showHome(chatId) {
 }
 
 
-// Import Task model
+// SHow tasks fn
 async function showTasks(chatId) {
     try {
         // Fetch tasks from MongoDB
         const tasks = await Task.find({});
 
         // Build the tasks message dynamically
-        let tasksMessage = `📋 *Tasks*\n\nComplete the following tasks to earn points:\n\n`;
+        let tasksMessage = `📋 *Tasks*\n\nJoin the following channels and click "Claim" to verify and earn points:\n\n`;
 
         // Generate task buttons and messages dynamically from the database
         const taskButtons = tasks.map(task => [
-            { text: `Verify ${task.name}`, callback_data: `verify_${task._id}` }
+            { text: `Claim ${task.name}`, callback_data: `claim_${task._id}` }
         ]);
 
         tasks.forEach(task => {
-            tasksMessage += `🔹 *${task.name}* - Earn ${task.points} points\n👉 *Description*: ${task.description}\n\n`;
+            // Generate the Telegram join link using the channel ID or username
+            // Remove the '@' symbol if present in `channelId`
+            const cleanChannelId = task.channelId.replace('@', '');
+            const channelLink = `https://t.me/${cleanChannelId}`;
+
+            tasksMessage += `🔹 *${task.name}*\n(${task.description})\n📎 [Join Channel](${channelLink})\n\n`;
         });
 
-        tasksMessage += "After joining, click the corresponding 'Verify' button below to claim your points.";
+        tasksMessage += "After joining the channel, click the corresponding 'Claim' button below to verify and claim your points.";
 
         const options = {
             parse_mode: "Markdown",
@@ -960,3 +1445,5 @@ async function showTasks(chatId) {
         bot.sendMessage(chatId, "⚠️ Unable to fetch tasks. Please try again later.");
     }
 }
+
+
