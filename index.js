@@ -379,9 +379,64 @@ bot.on("callback_query", async (query) => {
                 await promptForNewValue(chatId, opportunityId, field);
             }
 
+            // Check if the callback data indicates an edit task field action
+            if (data.startsWith('edit_field_task_')) {
+                const parts = data.split('_');
+                console.log("parts: ", parts)
+                const field = parts[3]; // Extract the field to be edited
+                const opportunityId = parts[4]; // Extract the opportunity ID
+                await promptForTaskEdit(chatId, opportunityId, field);
+            }
+
             break;
     }
 });
+
+// Prompt the admin to enter a new value for the selected task field
+async function promptForTaskEdit(chatId, taskId, field) {
+    const fieldDisplayNames = {
+        name: "Name",
+        description: "Description",
+        channel: "Channel ID",
+        points: "Points"
+    };
+
+    // Send a message to the admin asking for the new value of the selected field
+    bot.sendMessage(chatId, `Please enter the new value for *${fieldDisplayNames[field]}*:`, { parse_mode: "Markdown" });
+
+    bot.on('message', async function handler(msg) {
+        if (msg.chat.id !== chatId) return; // Ensure we're only processing the correct user's input
+
+        const newValue = msg.text;
+        bot.removeListener('message', handler); // Remove listener after receiving input
+
+        await updateTaskField(chatId, taskId, field, newValue);
+    });
+}
+
+// Function to update a specific field of a task
+async function updateTaskField(chatId, taskId, field, newValue) {
+    try {
+        const update = {};
+        update[field] = field === 'points' ? parseInt(newValue) : newValue; // Convert points to integer if needed
+
+        // Update the specified field in the Task document
+        const result = await Task.findByIdAndUpdate(taskId, update, { new: true });
+
+        if (result) {
+            await bot.sendMessage(chatId, `✅ Task ${field.charAt(0).toUpperCase() + field.slice(1)} has been updated successfully.`);
+        } else {
+            await bot.sendMessage(chatId, "⚠️ Task not found or update failed.");
+        }
+    } catch (error) {
+        console.error("Error updating task:", error);
+        await bot.sendMessage(chatId, "⚠️ Unable to update the task. Please try again.");
+    }
+
+    // Show the Task Management menu again after editing
+    await showManageTasks(chatId);
+}
+
 
 // Function to prompt the admin to edit an earning opportunity
 async function promptEditEarningOpportunity(chatId) {
@@ -636,8 +691,6 @@ async function addEarningOpportunity(chatId, data) {
     }
 }
 
-
-
 // Function to show the Manage Withdrawals menu to the admin
 async function showManageWithdrawalsMenu(chatId) {
     const options = {
@@ -830,11 +883,6 @@ async function confirmDeposit(chatId, opportunityId) {
     }
 }
 
-
-
-
-
-
 async function showEarnOpportunities(chatId) {
     try {
         // Fetch all earning opportunities from the database
@@ -927,10 +975,10 @@ async function editTask(chatId, taskId) {
         parse_mode: "Markdown",
         reply_markup: {
             inline_keyboard: [
-                [{ text: "Edit Name", callback_data: `edit_task_name_${taskId}` }],
-                [{ text: "Edit Description", callback_data: `edit_task_description_${taskId}` }],
-                [{ text: "Edit Channel ID", callback_data: `edit_task_channel_${taskId}` }],
-                [{ text: "Edit Points", callback_data: `edit_task_points_${taskId}` }],
+                [{ text: "Edit Name", callback_data: `edit_field_task_name_${taskId}` }],
+                [{ text: "Edit Description", callback_data: `edit_field_task_description_${taskId}` }],
+                [{ text: "Edit Channel ID", callback_data: `edit_field_task_channel_${taskId}` }],
+                [{ text: "Edit Points", callback_data: `edit_field_task_points_${taskId}` }],
                 [{ text: "Back to Task Management", callback_data: "admin_manage_tasks" }]
             ]
         }
