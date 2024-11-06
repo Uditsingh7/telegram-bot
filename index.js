@@ -214,7 +214,7 @@ bot.on("callback_query", async (query) => {
                 parse_mode: "Markdown",
                 reply_markup: {
                     inline_keyboard: [
-                        [{ text: "Back to Withdrawal Setup", callback_data: "withdrawal" }]
+                        [{ text: "⬅️ Back to Withdrawal Setup", callback_data: "withdrawal" }]
                     ]
                 }
             });
@@ -736,7 +736,7 @@ async function handleDeposit(chatId, opportunityId) {
             reply_markup: {
                 inline_keyboard: [
                     [{ text: "Confirm Deposit", callback_data: `confirm_deposit_${opportunityId}` }],
-                    [{ text: "Back to Earn Section", callback_data: "earn" }]
+                    [{ text: "⬅️ Back to Earn Section", callback_data: "earn" }]
                 ]
             }
         };
@@ -782,7 +782,7 @@ async function handleWithdrawal(chatId, opportunityId) {
             reply_markup: {
                 inline_keyboard: [
                     [{ text: "Confirm Withdrawal", callback_data: `confirm_withdrawal_${opportunityId}` }],
-                    [{ text: "Back to Earn Section", callback_data: "earn" }]
+                    [{ text: "⬅️ Back to Earn Section", callback_data: "earn" }]
                 ]
             }
         };
@@ -909,7 +909,7 @@ async function showEarnOpportunities(chatId) {
         });
 
         // Add a button to return to the main menu
-        options.reply_markup.inline_keyboard.push([{ text: "Back to Main Menu", callback_data: "main_menu" }]);
+        options.reply_markup.inline_keyboard.push([{ text: "⬅️ Back to Main Menu", callback_data: "main_menu" }]);
 
         // Send the message
         bot.sendMessage(chatId, earnMessage, options);
@@ -961,7 +961,7 @@ async function showEditTaskMenu(chatId) {
 
     const options = {
         reply_markup: {
-            inline_keyboard: [...taskButtons, [{ text: "Back to Task Management", callback_data: "admin_manage_tasks" }]]
+            inline_keyboard: [...taskButtons, [{ text: "⬅️ Back to Task Management", callback_data: "admin_manage_tasks" }]]
         }
     };
 
@@ -979,7 +979,7 @@ async function editTask(chatId, taskId) {
                 [{ text: "Edit Description", callback_data: `edit_field_task_description_${taskId}` }],
                 [{ text: "Edit Channel ID", callback_data: `edit_field_task_channel_${taskId}` }],
                 [{ text: "Edit Points", callback_data: `edit_field_task_points_${taskId}` }],
-                [{ text: "Back to Task Management", callback_data: "admin_manage_tasks" }]
+                [{ text: "⬅️ Back to Task Management", callback_data: "admin_manage_tasks" }]
             ]
         }
     });
@@ -992,7 +992,7 @@ async function deleteTask(chatId) {
 
     const options = {
         reply_markup: {
-            inline_keyboard: [...taskButtons, [{ text: "Back to Task Management", callback_data: "admin_manage_tasks" }]]
+            inline_keyboard: [...taskButtons, [{ text: "⬅️ Back to Task Management", callback_data: "admin_manage_tasks" }]]
         }
     };
 
@@ -1019,10 +1019,10 @@ function showManageTasks(chatId) {
         parse_mode: "Markdown",
         reply_markup: {
             inline_keyboard: [
-                [{ text: "Add New Task", callback_data: "admin_add_task" }],
-                [{ text: "Edit Existing Task", callback_data: "admin_edit_task" }],
-                [{ text: "Delete Task", callback_data: "admin_delete_task" }],
-                [{ text: "Back to Admin Menu", callback_data: "admin_dashboard" }]
+                [{ text: "➕ Add New Task", callback_data: "admin_add_task" }],
+                [{ text: "❌ Edit Existing Task", callback_data: "admin_edit_task" }],
+                [{ text: "✏️ Delete Task", callback_data: "admin_delete_task" }],
+                [{ text: "⬅️ Back to Admin Menu", callback_data: "admin_dashboard" }]
             ]
         }
     };
@@ -1114,7 +1114,7 @@ function showManageHome(chatId) {
                 [{ text: "Edit Ad Description", callback_data: "admin_edit_ad_description" }],
                 [{ text: "Edit Ad Link", callback_data: "admin_edit_ad_link" }],
                 [{ text: "Edit Main logo", callback_data: "admin_edit_main_logo" }],
-                [{ text: "Back to Admin Menu", callback_data: "admin_dashboard" }]
+                [{ text: "⬅️ Back to Admin Menu", callback_data: "admin_dashboard" }]
             ]
         }
     };
@@ -1200,7 +1200,7 @@ function handleDeposit(chatId, opportunity) {
         reply_markup: {
             inline_keyboard: [
                 [{ text: "Confirm Deposit", callback_data: `confirm_deposit_${opportunity.toLowerCase()}` }],
-                [{ text: "Back to Earn Section", callback_data: "earn" }]
+                [{ text: "⬅️ Back to Earn Section", callback_data: "earn" }]
             ]
         }
     };
@@ -1233,7 +1233,7 @@ function startWithdrawalSetup(chatId) {
                 [{ text: "Crypto Address", callback_data: "set_crypto_address" }],
                 [{ text: "Bank Details", callback_data: "set_bank_details" }],
                 [{ text: "View Withdrawal Details", callback_data: "view_withdrawal_details" }],
-                [{ text: "Back to Main Menu", callback_data: "main_menu" }]
+                [{ text: "⬅️ Back to Main Menu", callback_data: "main_menu" }]
             ]
         }
     };
@@ -1289,7 +1289,7 @@ ${referredUsersList}
             disable_web_page_preview: true,
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: "Back to Main Menu", callback_data: "main_menu" }]
+                    [{ text: "⬅️ Back to Main Menu", callback_data: "main_menu" }]
                 ]
             }
         };
@@ -1330,7 +1330,7 @@ async function verifyTaskCompletion(chatId, taskId, points) {
                 bot.sendMessage(chatId, "✅ You have already completed this task.", {
                     reply_markup: {
                         inline_keyboard: [
-                            [{ text: "Back to Task List", callback_data: "tasks" }],
+                            [{ text: "⬅️ Back to Task List", callback_data: "tasks" }],
                             [{ text: "Main Menu", callback_data: "main_menu" }]
                         ]
                     }
@@ -1344,7 +1344,7 @@ async function verifyTaskCompletion(chatId, taskId, points) {
                 bot.sendMessage(chatId, `🎉 Task completed! You've earned ${points} points. Your new balance is ${user.balance} points.`, {
                     reply_markup: {
                         inline_keyboard: [
-                            [{ text: "Back to Task List", callback_data: "tasks" }],
+                            [{ text: "⬅️ Back to Task List", callback_data: "tasks" }],
                             [{ text: "Main Menu", callback_data: "main_menu" }]
                         ]
                     }
@@ -1354,7 +1354,7 @@ async function verifyTaskCompletion(chatId, taskId, points) {
             bot.sendMessage(chatId, "🚫 Please join the task channel to claim your reward.", {
                 reply_markup: {
                     inline_keyboard: [
-                        [{ text: "Back to Task List", callback_data: "tasks" }],
+                        [{ text: "⬅️ Back to Task List", callback_data: "tasks" }],
                         [{ text: "Main Menu", callback_data: "main_menu" }]
                     ]
                 }
@@ -1365,7 +1365,7 @@ async function verifyTaskCompletion(chatId, taskId, points) {
         bot.sendMessage(chatId, "⚠️ Unable to verify task completion. Please try again later.", {
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: "Back to Task List", callback_data: "tasks" }],
+                    [{ text: "⬅️ Back to Task List", callback_data: "tasks" }],
                     [{ text: "Main Menu", callback_data: "main_menu" }]
                 ]
             }
@@ -1436,7 +1436,7 @@ async function showHome(chatId) {
             reply_markup: {
                 inline_keyboard: [
                     [{ text: `${adSetting?.value?.adButton || "Learn More"}`, url: `${adSetting?.value?.adChannelLink || "#"}` }],
-                    [{ text: "Back to Main Menu", callback_data: "main_menu" }]
+                    [{ text: "⬅️ Back to Main Menu", callback_data: "main_menu" }]
                 ]
             }
         };
@@ -1481,7 +1481,7 @@ async function showTasks(chatId) {
             reply_markup: {
                 inline_keyboard: [
                     ...taskButtons,
-                    [{ text: "Back to Main Menu", callback_data: "main_menu" }]
+                    [{ text: "⬅️ Back to Main Menu", callback_data: "main_menu" }]
                 ]
             }
         };
